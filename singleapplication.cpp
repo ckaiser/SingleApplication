@@ -12,6 +12,10 @@
     #include <unistd.h>
 #endif
 
+#ifdef Q_OS_WIN
+    #include <windows.h>
+#endif
+
 class SingleApplicationPrivate
 {
 public:
