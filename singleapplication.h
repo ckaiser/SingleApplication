@@ -3,7 +3,7 @@
 
 // Change this to inherit from QGuiApplication or QCoreApplication
 #ifndef QAPPLICATION_CLASS
-  #define QAPPLICATION_CLASS QCoreApplication
+    #define QAPPLICATION_CLASS QCoreApplication
 #endif
 
 #define  QUOTE(C) #C
@@ -18,19 +18,20 @@ class SingleApplicationPrivate;
  */
 class SingleApplication : public QAPPLICATION_CLASS
 {
-  Q_OBJECT
+    Q_OBJECT
 public:
-  explicit SingleApplication(int&, char *[]);
-  ~SingleApplication();
+    explicit SingleApplication(int &, char *[]);
+    ~SingleApplication();
 
 signals:
-  void showUp();
+    void showUp();
+    void instanceArguments(QStringList arguments);
 
 private slots:
-  void slotConnectionEstablished();
+    void slotConnectionEstablished();
 
 private:
-  SingleApplicationPrivate *d_ptr;
+    SingleApplicationPrivate *d_ptr;
 };
 
 #endif // SINGLE_APPLICATION_H

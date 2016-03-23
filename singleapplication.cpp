@@ -2,15 +2,18 @@
 #include <QSharedMemory>
 #include <QLocalSocket>
 #include <QLocalServer>
-#include <QMutex>
-#include <cstdlib>
+#include <QDataStream>
 
 #ifdef Q_OS_UNIX
+    #include <QMutex>
+    #include <cstdlib>
+
     #include <signal.h>
     #include <unistd.h>
 #endif
 
-class SingleApplicationPrivate {
+class SingleApplicationPrivate
+{
 public:
     SingleApplicationPrivate(SingleApplication *q_ptr) : q_ptr(q_ptr) { }
 
@@ -46,14 +49,14 @@ public:
 
     static void terminate(int signum)
     {
-        while( ! sharedMem.empty() ) {
+        while (!sharedMem.empty()) {
             delete sharedMem.back();
             sharedMem.pop_back();
         }
         ::exit(128 + signum);
     }
 
-    static QList<QSharedMemory*> sharedMem;
+    static QList<QSharedMemory *> sharedMem;
     static QMutex sharedMemMutex;
 #endif
 
@@ -64,7 +67,7 @@ public:
 };
 
 #ifdef Q_OS_UNIX
-    QList<QSharedMemory*> SingleApplicationPrivate::sharedMem;
+    QList<QSharedMemory *> SingleApplicationPrivate::sharedMem;
     QMutex SingleApplicationPrivate::sharedMemMutex;
 #endif
 
@@ -84,8 +87,7 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
     d_ptr->memory = new QSharedMemory(serverName);
 
     // Create a shared memory block with a minimum size of 1 byte
-    if( d_ptr->memory->create(1, QSharedMemory::ReadOnly) )
-    {
+    if (d_ptr->memory->create(1, QSharedMemory::ReadOnly)) {
 #ifdef Q_OS_UNIX
         // Handle any further termination signals to ensure the
         // QSharedMemory block is deleted even if the process crashes
@@ -95,21 +97,43 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
         // So we start a Local Server to listen for connections
         d_ptr->startServer(serverName);
     } else {
-        // Connect to the Local Server of the main process to notify it
-        // that a new process had been started
+        // Connect to the Local Server of the main process
+        // and send the current arguments
         d_ptr->socket = new QLocalSocket();
         d_ptr->socket->connectToServer(serverName);
 
         // Even though a shared memory block exists, the original application might have crashed
         // So only after a successful connection is the second instance terminated
-        if( d_ptr->socket->waitForConnected(100) )
-        {
+        if (d_ptr->socket->waitForConnected(100)) {
+            // Before closing, we send the arguments that this application was called with
+            // to the old instance
+            QByteArray argumentData;
+
+            // Serialize the application arguments
+            QDataStream ds(&argumentData, QIODevice::WriteOnly);
+            ds << arguments();
+
+            d_ptr->socket->write(argumentData);
+            d_ptr->socket->waitForBytesWritten(200); // Make sure our data is written
+
             ::exit(EXIT_SUCCESS); // Terminate the program using STDLib's exit function
         } else {
             delete d_ptr->memory;
             ::exit(EXIT_SUCCESS);
         }
     }
+
+#ifdef Q_OS_WIN
+    // Creating a Windows Mutex, mostly so that other apps (like Inno Installer) can also know about the application's single instance
+    QString mutexName = "Global\\" + serverName.replace(" ", "");
+    HANDLE mutexResult = CreateMutexA(NULL, FALSE, mutexName.toStdString().c_str());
+
+    if (mutexResult == NULL) {
+        // Quit if we couldn't create the mutext.
+        delete d_ptr->memory;
+        ::exit(EXIT_SUCCESS);
+    }
+#endif
 }
 
 /**
@@ -122,12 +146,31 @@ SingleApplication::~SingleApplication()
 }
 
 /**
- * @brief Executed when the showUp command is sent to LocalServer
+ * @brief Executed when the new instance connects with the LocalServer
  */
 void SingleApplication::slotConnectionEstablished()
 {
     QLocalSocket *socket = d_ptr->server->nextPendingConnection();
-    socket->close();
-    delete socket;
+
+    // Emit showUp as soon as the connection is established
     emit showUp();
+
+    // Connect the socket's readyRead signal to a lambda that is in charge of
+    // grabbing the arguments and emitting the signal that they arrived.
+    connect(socket, &QLocalSocket::readyRead, [&, socket] {
+        // Grab all the data from the socket
+        QByteArray argumentData = socket->readAll();
+
+        // Deserialize it
+        QStringList arguments;
+        QDataStream ds(argumentData);
+        ds >> arguments;
+
+        emit instanceArguments(arguments);
+
+        socket->close();
+    });
+
+    // Makes sure we delete the socket object even if we receive no data
+    connect(socket, &QLocalSocket::aboutToClose, socket, &QLocalSocket::deleteLater);
 }
