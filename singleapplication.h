@@ -25,7 +25,7 @@ public:
 
 signals:
     void showUp();
-    void instanceArguments(QStringList arguments);
+    void instanceArguments(const QStringList arguments);
 
 private slots:
     void slotConnectionEstablished();
