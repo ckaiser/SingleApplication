@@ -92,6 +92,8 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
 
     // Create a shared memory block with a minimum size of 1 byte
     if (d_ptr->memory->create(1, QSharedMemory::ReadOnly)) {
+        qDebug() << "Created the shared memory:" << serverName;
+
 #ifdef Q_OS_UNIX
         // Handle any further termination signals to ensure the
         // QSharedMemory block is deleted even if the process crashes
@@ -100,7 +102,22 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
         // Successful creation means that no main process exists
         // So we start a Local Server to listen for connections
         d_ptr->startServer(serverName);
+
+#ifdef Q_OS_WIN
+        // Creating a Windows Mutex, mostly so that other apps (like Inno Installer) can also know about the application's single instance
+        QString mutexName = "Global\\" + serverName.replace(" ", "");
+        HANDLE mutexResult = CreateMutexA(NULL, FALSE, mutexName.toStdString().c_str());
+
+        if (mutexResult == NULL) {
+            // Quit if we couldn't create the mutex.
+            qCritical() << "Couldn't create the application mutex - ERROR:" << GetLastError();
+            delete d_ptr->memory;
+            ::exit(EXIT_SUCCESS);
+        }
+#endif
     } else {
+        qDebug() << "Couldn't create the shared memory:"  << serverName;
+
         // Connect to the Local Server of the main process
         // and send the current arguments
         d_ptr->socket = new QLocalSocket();
@@ -108,7 +125,8 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
 
         // Even though a shared memory block exists, the original application might have crashed
         // So only after a successful connection is the second instance terminated
-        if (d_ptr->socket->waitForConnected(100)) {
+        if (d_ptr->socket->waitForConnected(200)) {
+            qDebug() << "About to send over argument data";
             // Before closing, we send the arguments that this application was called with
             // to the old instance
             QByteArray argumentData;
@@ -120,24 +138,14 @@ SingleApplication::SingleApplication(int &argc, char *argv[])
             d_ptr->socket->write(argumentData);
             d_ptr->socket->waitForBytesWritten(200); // Make sure our data is written
 
+            qDebug() << "Terminating after sending data";
             ::exit(EXIT_SUCCESS); // Terminate the program using STDLib's exit function
         } else {
+            qDebug() << "waitForConnected didn't connect";
             delete d_ptr->memory;
             ::exit(EXIT_SUCCESS);
         }
     }
-
-#ifdef Q_OS_WIN
-    // Creating a Windows Mutex, mostly so that other apps (like Inno Installer) can also know about the application's single instance
-    QString mutexName = "Global\\" + serverName.replace(" ", "");
-    HANDLE mutexResult = CreateMutexA(NULL, FALSE, mutexName.toStdString().c_str());
-
-    if (mutexResult == NULL) {
-        // Quit if we couldn't create the mutext.
-        delete d_ptr->memory;
-        ::exit(EXIT_SUCCESS);
-    }
-#endif
 }
 
 /**
