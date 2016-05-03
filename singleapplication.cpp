@@ -74,9 +74,9 @@ public:
     bool createMutex(const QString& mutexName)
     {
 #ifdef Q_OS_WIN
-        HANDLE mutexResult = CreateMutexA(NULL, FALSE, mutexName.toStdString().c_str());
+        CreateMutex(NULL, FALSE, mutexName.toStdWString().c_str());
 
-        if (mutexResult == NULL) {
+        if (GetLastError() == ERROR_ALREADY_EXISTS) {
             qCritical() << "Couldn't create the application mutex - ERROR:" << GetLastError();
             return false;
         } else {
